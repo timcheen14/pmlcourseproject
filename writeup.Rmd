@@ -1,0 +1,154 @@
+---
+title: "Practical Machine Learning - Prediction Assignment Writeup"
+author: "Timothy M. Amado"
+date: "December 8, 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+##1. Introduction
+This writeup serves as the final report for the peer-graded assestment course project for the Practical Machine Learning course under the Data Science Specialization track. This writeup consists of the data ingestion, exploratory data analysis, data cleaning, data slicing and development of predictive model for Weight Lifting Exercise Dataset.
+
+##2. Background
+Using devices such as *Jawbone Up, Nike FuelBand,* and *Fitbit* it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement - a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how *much* of a particular activity they do, but they rarely quantify *how well they do it*. In this project, the goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: [http://groupware.les.inf.puc-rio.br/har](http://groupware.les.inf.puc-rio.br/har) (see the section on the Weight Lifting Exercise Dataset).
+
+##3. Data Source
+The data for this project can be found on the following website:
+
+[http://groupware.les.inf.puc-rio.br/har.](http://groupware.les.inf.puc-rio.br/har)
+
+The training data for this project:
+
+[https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv](https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv)
+
+The test data for this project:
+
+[https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv](https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv)
+
+Citation request: 
+
+Velloso, E.; Bulling, A.; Gellersen, H.; Ugulino, W.; Fuks, H. "Qualitative Activity Recognition of Weight Lifting Exercises. Proceedings of 4th International Conference in Cooperation with SIGCHI (Augmented Human '13)". Stuttgart, Germany: ACM SIGCHI, 2013.
+
+##4. Getting the Data
+Load all the pertinent libraries in R.
+
+```{r, message=FALSE, warning=FALSE}
+library(tidyverse)
+library(caret)
+library(rpart)
+library(rpart.plot)
+library(RColorBrewer)
+library(rattle)
+```
+
+Download all necessary files.
+```{r}
+url_train <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+url_test <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+
+if(!dir.exists("./pml_course_project")){
+  dir.create("./pml_course_project")
+}
+
+
+if(!file.exists("./pml_course_project/training.csv")){
+  download.file(url_train, destfile = "./pml_course_project/training.csv")
+}
+
+if(!file.exists("./pml_course_project/test.csv")){
+  download.file(url_test, destfile = "./pml_course_project/test.csv")
+}
+```
+
+Ingest the files in an R data frame.
+```{r, message=FALSE}
+training <- read.csv("./pml_course_project/training.csv")
+testing <- read.csv("./pml_course_project/test.csv")
+dim(training)
+dim(testing)
+```
+
+## 5. Data Cleaning
+The datasets contain some predictors that have near zero variances and some have mostly NAs (missing values). Hence, data cleaning must be done to be able to produce a proper model.
+
+Removing columns that contains missing values (and columns used for identification):
+```{r}
+training <- training %>% 
+  select(-(X:num_window)) %>% 
+  select_if(~all(!is.na(.))) %>%
+  mutate(classe = as.factor(classe))
+dim(training)
+```
+
+Removing columns with near zero variances
+```{r}
+nzv_var <- nearZeroVar(training)
+training <- training[,-nzv_var]
+dim(training)
+```
+
+From 159 predictors, we are now only be using 52 after data cleaning (the last column is the class variable).
+
+##6 Data Slicing
+As recommended from the Practical Machine Learning class, in making predictive models, the training set must be split into a *train set* and *test set* to avoid overfitting. The criteria for splitting to be used is 60-40.
+
+```{r}
+set.seed(14)
+index <- createDataPartition(training$classe, p = 0.6, list = FALSE)
+train_set <- training[index,]
+test_set <- training[-index,]
+
+dim(train_set)
+dim(test_set)
+```
+
+##7 Development of the Predictive Models
+This section presents the development of the predictive models that will be used in this course project.
+
+###7.1 Decision Trees
+To get an overall view of the model, we first try using the decision tree. However, because of the nature of the data, we don't expect to get high out-of-sample accuracy here.
+
+```{r}
+set.seed(14)
+model_fit1 <- train(classe~., method = "rpart", data = training)
+fancyRpartPlot(model_fit1$finalModel)
+```
+
+Testing the out-of-sample error of the model
+```{r}
+pred_tree <- predict(model_fit1, newdata = test_set)
+confusionMatrix(pred_tree,test_set$classe)
+```
+
+We can see that by using this model, the accuracy is less than 50%. Hence, we move to try another predictive model.
+
+###7.2 Random Forest
+First we specify the train control method. Here, we will be using the repeated cross validation method.
+```{r}
+trCtrl <- trainControl(method = "repeatedcv", number = 10)
+```
+
+Next, we train the model.
+```{r}
+model_fit2 <- train(classe~., data = train_set, method = "rf", trControl = trCtrl)
+model_fit2$finalModel
+```
+
+We can see an estimate of the out-of-sample error, and its very low. We check by:
+
+```{r}
+pred_rf <- predict(model_fit2, newdata = test_set)
+confusionMatrix(pred_rf,test_set$classe)
+```
+
+We can see that the model yielded a very high accuracy.
+
+##8. Predicting Using Test Set
+In this section, we do the prediction using the *testing data* provided using the model developed using the random forest model.
+
+```{r}
+predict(model_fit2, newdata = testing)
+```
